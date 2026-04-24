@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
+import { MapContainer, TileLayer, Marker } from "react-leaflet";
 
 function Delivery() {
   const [availableOrders, setAvailableOrders] = useState([]);
   const [acceptedOrders, setAcceptedOrders] = useState([]);
   const [deliveredOrders, setDeliveredOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [currentOrder, setCurrentOrder] = useState(null);
+  const [position, setPosition] = useState({ lat: 3.4516, lng: -76.5319 });
 
   const user = JSON.parse(localStorage.getItem("user"));
   const deliveryId = user?.id;
@@ -26,6 +29,10 @@ function Delivery() {
       const response = await fetch(`http://localhost:3000/api/orders/delivery/accepted/${deliveryId}`);
       const data = await response.json();
       setAcceptedOrders(data);
+
+      if (data.length > 0 && !currentOrder) {
+        setCurrentOrder(data[0].id);
+      }
     } catch (error) {
       console.error("Error fetching accepted orders:", error);
     }
@@ -39,7 +46,7 @@ function Delivery() {
       const data = await response.json();
 
       const delivered = data.filter(
-        (order) => order.deliveryId == deliveryId && order.status === "delivered"
+        (order) => order.deliveryId == deliveryId && order.status === "Entregado"
       );
 
       setDeliveredOrders(delivered);
@@ -64,6 +71,56 @@ function Delivery() {
     }
   }, [deliveryId]);
 
+  useEffect(() => {
+    const handleKeyDown = async (e) => {
+  if (!currentOrder) return;
+
+  if (
+    e.key !== "ArrowUp" &&
+    e.key !== "ArrowDown" &&
+    e.key !== "ArrowLeft" &&
+    e.key !== "ArrowRight"
+  ) {
+    return;
+  }
+
+  e.preventDefault();
+
+  let { lat, lng } = position;
+  const step = 0.00005;
+
+  if (e.key === "ArrowUp") lat += step;
+  else if (e.key === "ArrowDown") lat -= step;
+  else if (e.key === "ArrowLeft") lng -= step;
+  else if (e.key === "ArrowRight") lng += step;
+
+  const newPosition = { lat, lng };
+  setPosition(newPosition);
+
+  try {
+    const response = await fetch(`http://localhost:3000/api/orders/${currentOrder}/position`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(newPosition)
+    });
+
+    const updatedOrder = await response.json();
+
+    if (updatedOrder.status === "Entregado") {
+      alert("Order delivered!");
+      setCurrentOrder(null);
+      fetchAllData();
+    }
+  } catch (error) {
+    console.error("Error updating position:", error);
+  }
+};
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [position, currentOrder]);
+
   const handleAccept = async (orderId) => {
     try {
       if (!deliveryId) {
@@ -81,11 +138,12 @@ function Delivery() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        console.log(errorData);
         alert(errorData.message || "Error accepting order");
         return;
       }
 
+      setCurrentOrder(orderId);
+      setPosition({ lat: 3.4516, lng: -76.5319 });
       fetchAllData();
     } catch (error) {
       console.error("Error accepting order:", error);
@@ -100,7 +158,6 @@ function Delivery() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        console.log(errorData);
         alert(errorData.message || "Error declining order");
         return;
       }
@@ -119,9 +176,12 @@ function Delivery() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        console.log(errorData);
         alert(errorData.message || "Error marking order as delivered");
         return;
+      }
+
+      if (currentOrder === orderId) {
+        setCurrentOrder(null);
       }
 
       fetchAllData();
@@ -210,6 +270,40 @@ function Delivery() {
           Delivery Dashboard
         </h1>
 
+        {currentOrder && (
+          <section style={{ marginBottom: "50px" }}>
+            <h2 style={sectionTitleStyle}>Delivery Map</h2>
+
+            <div style={cardStyle}>
+              <p style={textStyle}>
+                <strong>Current Order:</strong> {currentOrder}
+              </p>
+
+              <p style={textStyle}>
+                Use the keyboard arrows to move the delivery marker.
+              </p>
+
+              <p style={textStyle}>
+                <strong>Position:</strong> {position.lat.toFixed(5)}, {position.lng.toFixed(5)}
+              </p>
+
+              <MapContainer
+                center={[position.lat, position.lng]}
+                zoom={15}
+                style={{
+                  height: "420px",
+                  width: "100%",
+                  borderRadius: "12px",
+                  marginTop: "20px"
+                }}
+              >
+                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                <Marker position={[position.lat, position.lng]} />
+              </MapContainer>
+            </div>
+          </section>
+        )}
+
         <section style={{ marginBottom: "50px" }}>
           <h2 style={sectionTitleStyle}>Available Orders</h2>
 
@@ -283,9 +377,26 @@ function Delivery() {
                   <p style={textStyle}><strong>Delivery ID:</strong> {order.deliveryId}</p>
 
                   <button
-                    onClick={() => handleDelivered(order.id)}
+                    onClick={() => setCurrentOrder(order.id)}
                     style={{
                       marginTop: "18px",
+                      width: "100%",
+                      padding: "12px",
+                      border: "none",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      backgroundColor: "#111827",
+                      color: "#ffffff",
+                      fontWeight: "bold"
+                    }}
+                  >
+                    Open Map
+                  </button>
+
+                  <button
+                    onClick={() => handleDelivered(order.id)}
+                    style={{
+                      marginTop: "10px",
                       width: "100%",
                       padding: "12px",
                       border: "none",
